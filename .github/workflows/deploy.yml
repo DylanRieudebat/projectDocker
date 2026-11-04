@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 permissions:
@@ -18,9 +15,6 @@ jobs:
   build-and-push:
     name: Build et Push Docker
     runs-on: ubuntu-latest
-
-    # On ne pousse pas d'image lors d'une pull request
-    if: github.event_name != 'pull_request'
 
     steps:
       - name: Recuperer le code
@@ -37,9 +31,9 @@ jobs:
         with:
           context: .
           push: true
-          tags: TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/hello-world-tp:${{ github.sha }}
 
-  # JOB 2 : Extraction du fichier HTML depuis le conteneur
+  # JOB 2 : Extraction du fichier HTML
   extract-html:
     name: Extraction du HTML
     runs-on: ubuntu-latest
@@ -52,22 +46,22 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Telecharger l'image Docker
+      - name: Recuperer l'image Docker
         run: |
-          docker pull TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
+          docker pull ${{ secrets.DOCKERHUB_USERNAME }}/hello-world-tp:${{ github.sha }}
 
-      - name: Creer un conteneur temporaire
+      - name: Lancer un conteneur temporaire
         run: |
-          docker create --name extraction \
-            TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
+          docker run -d --name extraction \
+            ${{ secrets.DOCKERHUB_USERNAME }}/hello-world-tp:${{ github.sha }}
 
       - name: Extraire le fichier HTML
         run: |
           mkdir public
           docker cp extraction:/usr/share/nginx/html/index.html public/index.html
-          docker rm extraction
+          docker rm -f extraction
 
-      - name: Envoyer le fichier HTML comme artefact
+      - name: Envoyer le HTML comme artefact
         uses: actions/upload-pages-artifact@v3
         with:
           path: public
@@ -79,7 +73,6 @@ jobs:
     needs: extract-html
 
     permissions:
-      contents: read
       pages: write
       id-token: write
 
