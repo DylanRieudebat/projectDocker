@@ -1,4 +1,4 @@
-name: Lint et déploiement
+name: Build Docker et deploiement GitHub Pages
 
 on:
   push:
@@ -13,30 +13,72 @@ permissions:
   contents: read
 
 jobs:
-  lint:
-    name: Vérification HTML
+
+  # JOB 1 : Construction et envoi de l'image Docker
+  build-and-push:
+    name: Build et Push Docker
     runs-on: ubuntu-latest
+
+    # On ne pousse pas d'image lors d'une pull request
+    if: github.event_name != 'pull_request'
 
     steps:
-      - name: Récupérer le code
+      - name: Recuperer le code
         uses: actions/checkout@v4
 
-      - name: Installer Node.js
-        uses: actions/setup-node@v4
+      - name: Se connecter a Docker Hub
+        uses: docker/login-action@v3
         with:
-          node-version: 22
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Vérifier le HTML
-        run: npx --yes htmlhint index.html
+      - name: Construire et envoyer l'image Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
 
-  deploy:
-    name: Déploiement GitHub Pages
-    needs: lint
-    if: github.event_name != 'pull_request'
+  # JOB 2 : Extraction du fichier HTML depuis le conteneur
+  extract-html:
+    name: Extraction du HTML
     runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: Se connecter a Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Telecharger l'image Docker
+        run: |
+          docker pull TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
+
+      - name: Creer un conteneur temporaire
+        run: |
+          docker create --name extraction \
+            TON_PSEUDO_DOCKER/hello-world-tp:${{ github.sha }}
+
+      - name: Extraire le fichier HTML
+        run: |
+          mkdir public
+          docker cp extraction:/usr/share/nginx/html/index.html public/index.html
+          docker rm extraction
+
+      - name: Envoyer le fichier HTML comme artefact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  # JOB 3 : Deploiement sur GitHub Pages
+  deploy:
+    name: Deploiement GitHub Pages
+    runs-on: ubuntu-latest
+    needs: extract-html
 
     permissions:
-      contents: read
       pages: write
       id-token: write
 
@@ -45,17 +87,9 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
-      - name: Récupérer le code
-        uses: actions/checkout@v4
-
       - name: Configurer GitHub Pages
         uses: actions/configure-pages@v5
 
-      - name: Préparer les fichiers
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - name: Déployer sur GitHub Pages
+      - name: Deployer sur GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
